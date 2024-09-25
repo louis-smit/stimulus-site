@@ -45,7 +45,7 @@ For example, this element has a controller which is an instance of the class def
 <div data-controller="reference"></div>
 ```
 
-The following is an example of how Stimulus will generate identifiers for controllers in it's require context:
+The following is an example of how Stimulus will generate identifiers for controllers in its require context:
 
 If your controller file is named… | its identifier will be…
 --------------------------------- | -----------------------
@@ -163,6 +163,40 @@ class UnloadableController extends ApplicationController {
 application.register("unloadable", UnloadableController)
 ```
 
+### Trigger Behaviour When A Controller Is Registered
+
+If you want to trigger some behaviour once a controller has been registered you can add a static `afterLoad` method:
+
+```js
+class SpinnerButton extends Controller {
+  static legacySelector = ".legacy-spinner-button"
+
+  static afterLoad(identifier, application) {
+    // use the application instance to read the configured 'data-controller' attribute
+    const { controllerAttribute } = application.schema
+
+    // update any legacy buttons with the controller's registered identifier
+    const updateLegacySpinners = () => {
+      document.querySelector(this.legacySelector).forEach((element) => {
+        element.setAttribute(controllerAttribute, identifier)
+      })
+    }
+
+    // called as soon as registered so DOM may not have loaded yet
+    if (document.readyState == "loading") {
+      document.addEventListener("DOMContentLoaded", updateLegacySpinners)
+    } else {
+      updateLegacySpinners()
+    }
+  }
+}
+
+// This controller will update any legacy spinner buttons to use the controller
+application.register("spinner-button", SpinnerButton)
+```
+
+The `afterLoad` method will get called as soon as the controller has been registered, even if no controlled elements exist in the DOM. The function will be called bound to the original controller constructor along with two arguments; the `identifier` that was used when registering the controller and the Stimulus application instance.
+
 ## Cross-Controller Coordination With Events
 
 If you need controllers to communicate with each other, you should use events. The `Controller` class has a convenience method called `dispatch` that makes this easier. It takes an `eventName` as the first argument, which is then automatically prefixed with the name of the controller separated by a colon. The payload is held in `detail`. It works like this:
@@ -173,8 +207,7 @@ class ClipboardController extends Controller {
 
   copy() {
     this.dispatch("copy", { detail: { content: this.sourceTarget.value } })
-    this.sourceTarget.select()
-    document.execCommand("copy")
+    navigator.clipboard.writeText(this.sourceTarget.value)
   }
 }
 ```
@@ -198,6 +231,15 @@ class EffectsController extends Controller {
 }
 ```
 
+If the two controllers don't belong to the same HTML element, the `data-action` attribute
+needs to be added to the *receiving* controller's element. And if the receiving controller's
+element is not a parent (or same) of the emitting controller's element, you need to add
+`@window` to the event:
+
+```html
+<div data-action="clipboard:copy@window->effects#flash">
+```
+
 `dispatch` accepts additional options as the second parameter as follows:
 
 option       | default            | notes
@@ -217,9 +259,7 @@ class ClipboardController extends Controller {
   copy() {
     const event = this.dispatch("copy", { cancelable: true })
     if (event.defaultPrevented) return
-
-    this.sourceTarget.select()
-    document.execCommand("copy")
+    navigator.clipboard.writeText(this.sourceTarget.value)
   }
 }
 ```
